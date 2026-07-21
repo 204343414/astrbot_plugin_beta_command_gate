@@ -47,12 +47,17 @@ class BetaCommandGate(Star):
         Commands are handled before a default LLM request is made, so ordinary
         command plugins continue to run. This hook does not reply to the user.
         """
-        if not bool(self.config.get("disable_default_llm_response", False)):
+        if not bool(self.config.get("disable_beta_group_llm_response", False)):
+            return
+        # Only the configured beta/test groups are announcement-only. Private
+        # chat and every other group retain their normal LLM behavior.
+        group_id = self._get_group_id(event)
+        if not group_id or group_id not in set(self._beta_group_ids()):
             return
         event.stop_event()
         logger.info(
-            "[BetaCommandGate] blocked default LLM request platform=%s session=%s",
-            getattr(event, "get_platform_id", lambda: "unknown")(),
+            "[BetaCommandGate] blocked default LLM request in beta group=%s session=%s",
+            group_id,
             getattr(getattr(event, "message_obj", None), "session_id", "unknown"),
         )
 
