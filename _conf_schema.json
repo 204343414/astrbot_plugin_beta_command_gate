@@ -54,10 +54,10 @@
     "default": false,
     "hint": "开启后，仅当邀请人同时是 Bot 好友且仍在任一“内测资格群号”中，才自动同意其邀请 Bot 加入其他群。仅处理邀请（invite），不处理加群申请（add）；任一查询/API 失败均不批准。"
   },
-  "disable_default_llm_response": {
-    "description": "禁用普通对话 LLM 回复",
+  "disable_beta_group_llm_response": {
+    "description": "内测群禁用普通对话 LLM 回复",
     "type": "bool",
     "default": false,
-    "hint": "开启后，本插件会在 AstrBot 发起默认聊天 LLM 请求前静默阻断，因此自然语言对话不会调用 LLM。普通指令插件仍可执行；不影响群分析插件内部主动发起的分析任务。作用于此 NapCat Bot 的私聊和群聊。"
+    "hint": "开启后，仅在“内测资格群号”列表中的群静默阻断 AstrBot 默认聊天 LLM，用于公告/测试群。私聊和其他群的普通 LLM 对话不受影响；指令插件仍可执行。"
   }
 }
