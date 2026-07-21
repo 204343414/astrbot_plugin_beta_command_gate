@@ -97,37 +97,23 @@ class BetaCommandGate(Star):
         return str(value).strip() if value is not None else ""
 
     def _get_onebot_client(self, event: AstrMessageEvent):
-        """Return the client for the event's platform; fail closed if ambiguous."""
-        platform_id = ""
-        try:
-            platform_id = str(event.get_platform_id() or "")
-        except Exception:
-            meta = getattr(event, "platform_meta", None)
-            platform_id = str(getattr(meta, "id", "") or "")
+        """Get the exact aiocqhttp client which received this event.
 
-        matches = []
+        Uses AstrBot's documented Context.get_platform_inst(platform_id) API;
+        do not guess a platform by scanning all loaded instances.
+        """
         try:
-            for platform in self.context.platform_manager.get_insts():
-                meta = getattr(platform, "meta", None)
-                candidate_id = str(
-                    getattr(meta, "id", None)
-                    or getattr(platform, "platform_id", None)
-                    or getattr(platform, "id", None)
-                    or ""
-                )
-                if platform_id and candidate_id != platform_id:
-                    continue
-                get_client = getattr(platform, "get_client", None)
-                client = get_client() if callable(get_client) else None
-                if client and (hasattr(client, "get_group_member_info") or hasattr(client, "call_action")):
-                    matches.append(client)
+            if event.get_platform_name() != "aiocqhttp":
+                return None
+            platform = self.context.get_platform_inst(event.get_platform_id())
+            get_client = getattr(platform, "get_client", None)
+            client = get_client() if callable(get_client) else None
+            # Normal AstrBot client has client.api.call_action(...).
+            if client and (hasattr(client, "api") or hasattr(client, "call_action")):
+                return client
         except Exception as exc:
-            logger.warning("[BetaCommandGate] failed to discover OneBot client: %s", exc)
-            return None
-
-        # With a platform id there should be exactly one. Without one, only
-        # accept a single client; choosing an arbitrary bot is unsafe.
-        return matches[0] if len(matches) == 1 else None
+            logger.warning("[BetaCommandGate] failed to get event OneBot client: %s", exc)
+        return None
 
     async def _is_beta_member(self, client, user_id: str, beta_groups: list[str]) -> bool:
         for beta_group_id in beta_groups:
@@ -154,17 +140,26 @@ class BetaCommandGate(Star):
         return False
 
     async def _query_group_member(self, client, group_id: str, user_id: str) -> bool:
-        """OneBot get_group_member_info: any successful member result grants access."""
+        """Query OneBot 11 membership through AstrBot's documented client API."""
         try:
+            payload = {"group_id": int(group_id), "user_id": int(user_id)}
             if hasattr(client, "get_group_member_info"):
-                result = await client.get_group_member_info(group_id=int(group_id), user_id=int(user_id))
+                result = await client.get_group_member_info(**payload)
+            elif hasattr(client, "call_action"):
+                result = await client.call_action("get_group_member_info", **payload)
             else:
-                result = await client.call_action("get_group_member_info", group_id=int(group_id), user_id=int(user_id))
+                # This is the normal AstrBot aiocqhttp path.
+                api = getattr(client, "api", None)
+                call_action = getattr(api, "call_action", None)
+                if not callable(call_action):
+                    logger.warning("[BetaCommandGate] OneBot client has no call_action API")
+                    return False
+                result = await call_action("get_group_member_info", **payload)
             return bool(result)
         except (TypeError, ValueError):
             logger.warning("[BetaCommandGate] non-numeric OneBot group/user id configured: group=%r user=%r", group_id, user_id)
         except Exception as exc:
-            # Includes member-not-found, bot removed from beta group, and API
+            # Includes member-not-found, Bot removed from beta group, and API
             # failures. All are intentionally fail-closed.
             logger.info("[BetaCommandGate] membership lookup denied group=%s user=%s: %s", group_id, user_id, exc)
         return False
