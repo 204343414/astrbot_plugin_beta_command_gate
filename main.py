@@ -40,6 +40,11 @@ class BetaCommandGate(Star):
     @filter.regex(r"[\s\S]*", priority=100)
     async def gate_protected_commands(self, event: AstrMessageEvent):
         """Run before normal command handlers and stop unauthorized commands."""
+        # OneBot request events are also routed through this catch-all
+        # listener, so handle a trusted group invitation before command parsing.
+        if await self._handle_group_invite(event):
+            return
+
         if not bool(self.config.get("enabled", True)):
             return
         if not self._is_protected_command(getattr(event, "message_str", "")):
@@ -67,6 +72,77 @@ class BetaCommandGate(Star):
 
         if not await self._is_beta_member(client, user_id, beta_groups):
             await self._deny(event, "sender is not a current beta-group member")
+
+    async def _handle_group_invite(self, event: AstrMessageEvent) -> bool:
+        """Accept an invite only from a Bot friend still in a beta group.
+
+        AstrBot exposes OneBot request events via message_obj.raw_message.
+        This intentionally does not approve join applications (sub_type=add).
+        """
+        if not bool(self.config.get("auto_accept_group_invites", False)):
+            return False
+        raw = getattr(getattr(event, "message_obj", None), "raw_message", None)
+        if not isinstance(raw, dict):
+            return False
+        if raw.get("post_type") != "request" or raw.get("request_type") != "group":
+            return False
+        if raw.get("sub_type") != "invite":
+            return False
+
+        inviter_id = str(raw.get("user_id", "") or "").strip()
+        target_group_id = str(raw.get("group_id", "") or "").strip()
+        flag = raw.get("flag")
+        if not inviter_id or not target_group_id or flag is None:
+            logger.warning("[BetaCommandGate] malformed group invite request: %r", raw)
+            return False
+
+        beta_groups = self._beta_group_ids()
+        client = self._get_onebot_client(event)
+        if not beta_groups or client is None:
+            logger.info("[BetaCommandGate] ignored group invite: no beta group or client")
+            return False
+        if not await self._is_bot_friend(client, inviter_id):
+            logger.info("[BetaCommandGate] ignored invite from non-friend user=%s group=%s", inviter_id, target_group_id)
+            return False
+        if not await self._is_beta_member(client, inviter_id, beta_groups):
+            logger.info("[BetaCommandGate] ignored invite from non-beta user=%s group=%s", inviter_id, target_group_id)
+            return False
+
+        try:
+            await self._call_onebot_action(
+                client,
+                "set_group_add_request",
+                flag=flag,
+                sub_type="invite",
+                approve=True,
+            )
+            logger.info("[BetaCommandGate] accepted trusted invite: inviter=%s group=%s", inviter_id, target_group_id)
+            event.stop_event()
+            return True
+        except Exception as exc:
+            # Fail closed: do not retry blindly or approve without a confirmed API result.
+            logger.warning("[BetaCommandGate] failed to accept invite inviter=%s group=%s: %s", inviter_id, target_group_id, exc)
+            return False
+
+    async def _is_bot_friend(self, client, user_id: str) -> bool:
+        try:
+            result = await self._call_onebot_action(client, "get_friend_list")
+            if isinstance(result, dict):
+                result = result.get("data", [])
+            return any(str(item.get("user_id", "")) == user_id for item in (result or []) if isinstance(item, dict))
+        except Exception as exc:
+            logger.info("[BetaCommandGate] friend lookup failed user=%s: %s", user_id, exc)
+            return False
+
+    async def _call_onebot_action(self, client, action: str, **payload):
+        """Call OneBot through AstrBot's documented client.api.call_action API."""
+        if hasattr(client, "call_action"):
+            return await client.call_action(action, **payload)
+        api = getattr(client, "api", None)
+        call_action = getattr(api, "call_action", None)
+        if not callable(call_action):
+            raise RuntimeError("OneBot client has no call_action API")
+        return await call_action(action, **payload)
 
     def _is_protected_command(self, message: str) -> bool:
         """Match only the first token, optionally preceded by AstrBot's slash."""
