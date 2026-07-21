@@ -9,21 +9,14 @@
     "description": "内测资格群号",
     "type": "list",
     "default": [],
-    "items": {
-      "type": "string"
-    },
+    "items": {"type": "string"},
     "hint": "Bot 必须在这些 NapCat/OneBot 群中。调用者只要仍在任一资格群，即可使用受保护指令。填写纯 QQ 群号。"
   },
   "protected_commands": {
     "description": "受保护指令",
     "type": "list",
-    "default": [
-      "群分析",
-      "group_analysis"
-    ],
-    "items": {
-      "type": "string"
-    },
+    "default": ["群分析", "group_analysis"],
+    "items": {"type": "string"},
     "hint": "填写不带 / 的命令名；仅匹配消息的第一个命令词。例如 群分析 或 group_analysis。"
   },
   "membership_cache_seconds": {
@@ -35,10 +28,7 @@
   "deny_mode": {
     "description": "拒绝方式",
     "type": "string",
-    "options": [
-      "silent",
-      "message"
-    ],
+    "options": ["silent", "message"],
     "default": "silent",
     "hint": "silent=静默阻断；message=回复下方固定提示后阻断。"
   },
@@ -47,11 +37,5 @@
     "type": "string",
     "default": "该指令仅向内测群成员开放。",
     "hint": "仅 deny_mode=message 时使用。"
-  },
-  "auto_accept_group_invites": {
-    "description": "内测好友自动同意群邀请",
-    "type": "bool",
-    "default": false,
-    "hint": "开启后，仅当邀请人同时是 Bot 好友且仍在任一“内测资格群号”中，才自动同意其邀请 Bot 加入其他群。仅处理邀请（invite），不处理加群申请（add）；任一查询/API 失败均不批准。"
   }
 }
